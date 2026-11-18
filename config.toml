@@ -1,0 +1,12 @@
+# Light appearance is the default; the in-app Appearance control
+# (sidebar) switches to the validated dark theme.
+[theme]
+base = "light"
+primaryColor = "#0071E3"
+backgroundColor = "#F5F5F7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1D1D1F"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
