@@ -266,6 +266,7 @@ else:
 if st.session_state.get("_ds_name") != dataset.name:
     st.session_state["_ds_name"] = dataset.name
     st.session_state.pop("regions_df", None)
+    st.session_state.pop("fit_result", None)
 
 # ----------------------------------------------------------------------
 # Header + stat row
@@ -439,9 +440,14 @@ with tab_fit:
                                5.0)
     if st.button("Fit region"):
         try:
-            x, y, y_fit, rows = analysis.fit_lorentzians(
+            st.session_state["fit_result"] = analysis.fit_lorentzians(
                 ppm, real_final, fit_lo, fit_hi, dataset.sf_mhz,
                 max_peaks=int(max_pk), threshold_frac=fit_thr / 100.0)
+        except Exception as exc:
+            st.session_state.pop("fit_result", None)
+            st.warning(f"Fit failed: {exc}")
+    if "fit_result" in st.session_state:
+            x, y, y_fit, rows = st.session_state["fit_result"]
             fig = line_fig(
                 x,
                 [(y, "data", SERIES[0], None),
@@ -454,8 +460,18 @@ with tab_fit:
             df["height"] = df["height"].map(lambda v: f"{v:.3g}")
             df["area"] = df["area"].map(lambda v: f"{v:.3g}")
             st.dataframe(df, width="stretch", hide_index=True)
-        except Exception as exc:
-            st.warning(f"Fit failed: {exc}")
+            d1, d2 = st.columns(2)
+            curve_df = pd.DataFrame({"ppm": x, "data": y, "fit": y_fit,
+                                     "residual": y - y_fit})
+            d1.download_button(
+                "Download fit curve (CSV)",
+                curve_df.to_csv(index=False).encode(),
+                "lorentzian_fit_curve.csv", "text/csv", width="stretch")
+            d2.download_button(
+                "Download fit parameters (CSV)",
+                pd.DataFrame(rows).to_csv(index=False).encode(),
+                "lorentzian_fit_parameters.csv", "text/csv",
+                width="stretch")
 
 # ----------------------------------------------------------------------
 # Tab 6 — 2D COSY demo
@@ -504,6 +520,49 @@ with tab_cosy:
                      "F2 (ppm)", "magnitude", height=260)
     st.plotly_chart(fig_s, width="stretch", theme=None, config=PLOTLY_CONF,
                     key="pc_cosy_slice")
+    slice_df = pd.DataFrame({"F2_ppm": f2_ppm, "magnitude": mag[i_slice, :]})
+    st.download_button(
+        f"Download F2 slice @ {f1_ppm[i_slice]:.2f} ppm (CSV)",
+        slice_df.to_csv(index=False).encode(), "cosy_f2_slice.csv",
+        "text/csv")
+
+# ----------------------------------------------------------------------
+# Sidebar — export of the processed data (appended below the inspector)
+# ----------------------------------------------------------------------
+_slug = (dataset.name.split(" (")[0].lower()
+         .replace(" ", "_").replace("/", "-"))
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### Export")
+    fmt = st.radio("File format", ["CSV", "TXT (tab-separated)"],
+                   horizontal=True, label_visibility="collapsed")
+    sep, ext, mime = ((",", "csv", "text/csv") if fmt == "CSV"
+                      else ("\t", "txt", "text/plain"))
+
+    spec_df = pd.DataFrame({"ppm": ppm, "intensity": real_final})
+    st.download_button(
+        f"Spectrum (.{ext})",
+        spec_df.to_csv(index=False, sep=sep).encode(),
+        f"{_slug}_spectrum.{ext}", mime, width="stretch")
+
+    fid_df = pd.DataFrame({"time_ms": t_ms,
+                           "fid_real": np.real(fid_apod),
+                           "fid_imag": np.imag(fid_apod)})
+    st.download_button(
+        f"Processed FID (.{ext})",
+        fid_df.to_csv(index=False, sep=sep).encode(),
+        f"{_slug}_fid.{ext}", mime, width="stretch")
+
+    if len(idx):
+        peaks_df = pd.DataFrame({"ppm": np.round(pk_ppm, 4),
+                                 "height": pk_h})
+        st.download_button(
+            f"Peak list ({len(idx)} peaks, .{ext})",
+            peaks_df.to_csv(index=False, sep=sep).encode(),
+            f"{_slug}_peaks.{ext}", mime, width="stretch")
+    st.caption("Spectrum and FID reflect the current processing, phasing "
+               "and baseline settings. Integrals and fit results download "
+               "from their own tabs.")
 
 st.markdown(
     f'<p style="color:{INK_2}; font-size:0.85rem; margin-top:2rem;">'
